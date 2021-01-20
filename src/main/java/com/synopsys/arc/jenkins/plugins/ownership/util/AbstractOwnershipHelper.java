@@ -31,6 +31,9 @@ import java.util.Collection;
 import java.util.Collections;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
+
+import hudson.security.Permission;
+import jenkins.model.Jenkins;
 import org.jenkinsci.plugins.ownership.model.OwnershipInfo;
 
 /**
@@ -105,4 +108,24 @@ public abstract class AbstractOwnershipHelper<TObjectType>
      */
     @Nonnull
     public abstract OwnershipInfo getOwnershipInfo(@Nonnull TObjectType item);
+
+    /**
+     * Gets permission required to manage ownership for the item.
+     * {@link Jenkins#ADMINISTER} by default if not overridden.
+     * @return Permission which is needed to change ownership.
+     * @since TODO
+     */
+    @Nonnull
+    public Permission getRequiredPermission() {
+        return Jenkins.ADMINISTER;
+    }
+
+    /**
+     * Check if the objeck has locally defined ownership info.
+     * @param item Item
+     * @return {@code true} if the object has ownership defined locally.
+     *         {@code false} will be returned otherwise, even if ownership is inherited.
+     * @since TODO
+     */
+    public boolean hasLocallyDefinedOwnership(@Nonnull TObjectType item) { return false; }
 }

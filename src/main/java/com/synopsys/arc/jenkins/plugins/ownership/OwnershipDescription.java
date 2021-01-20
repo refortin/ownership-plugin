@@ -23,16 +23,14 @@
  */
 package com.synopsys.arc.jenkins.plugins.ownership;
 
-import com.synopsys.arc.jenkins.plugins.ownership.jobs.JobOwnerJobProperty;
+import com.synopsys.arc.jenkins.plugins.ownership.util.AbstractOwnershipHelper;
 import com.synopsys.arc.jenkins.plugins.ownership.util.IdStrategyComparator;
 import com.synopsys.arc.jenkins.plugins.ownership.util.OwnershipDescriptionHelper;
 import com.synopsys.arc.jenkins.plugins.ownership.nodes.OwnerNodeProperty;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Util;
-import hudson.model.Computer;
 import hudson.model.Descriptor;
-import hudson.model.Job;
-import hudson.model.Node;
+import hudson.model.ModelObject;
 import hudson.model.User;
 import hudson.security.ACL;
 import hudson.security.AccessControlled;
@@ -44,6 +42,8 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -51,6 +51,7 @@ import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 import org.acegisecurity.AccessDeniedException;
 import org.acegisecurity.Authentication;
+import org.jenkinsci.plugins.ownership.model.OwnershipHelperLocator;
 import org.jenkinsci.plugins.scriptsecurity.sandbox.whitelists.Whitelisted;
 import org.kohsuke.stapler.Stapler;
 import org.kohsuke.stapler.StaplerRequest;
@@ -62,6 +63,9 @@ import org.kohsuke.stapler.StaplerRequest;
  * @since 0.0.3
  */
 public class OwnershipDescription implements Serializable {
+
+    private static final Logger LOGGER = Logger.getLogger(OwnershipDescription.class.getName());
+
     /**
      * Disabled description, which means that ownership is disabled
      */
@@ -392,29 +396,22 @@ public class OwnershipDescription implements Serializable {
         StaplerRequest request = Stapler.getCurrentRequest();
         if (request != null) {
             AccessControlled context = request.findAncestorObject(AccessControlled.class);
-            if (context instanceof Job) {
-                Job<?, ?> job = (Job)context;
-                JobOwnerJobProperty existing = job.getProperty(JobOwnerJobProperty.class);
-                if (existing == null || !Objects.equals(existing.getOwnership(), this)) {
-                    throwIfMissingPermission(job, OwnershipPlugin.MANAGE_ITEMS_OWNERSHIP);
-                }
-                return;
-            } else if (context instanceof Computer) {
-                Node node = ((Computer)context).getNode();
-                if (node != null) {
-                    OwnerNodeProperty existing = node.getNodeProperties().get(OwnerNodeProperty.class);
-                    if (existing == null || !Objects.equals(existing.getOwnership(), this)) {
-                        throwIfMissingPermission(node, OwnershipPlugin.MANAGE_SLAVES_OWNERSHIP);
+            if (context != null) {
+                final AbstractOwnershipHelper<AccessControlled> helper = OwnershipHelperLocator.locate(context);
+                if (helper != null) {
+                    final OwnershipDescription d = helper.getOwnershipDescription(context);
+                    if (!helper.hasLocallyDefinedOwnership(context) || !Objects.equals(d, this)) {
+                        throwIfMissingPermission(context, helper.getRequiredPermission());
                     }
                     return;
+                } else {
+                    LOGGER.log(Level.WARNING, "Cannot locate OwnershipHelperClass for object {0}. " +
+                            "Jenkins.ADMINISTER permissions will be required to change ownership", context);
                 }
-            } else if (context instanceof Node) {
-                Node node = ((Node)context);
-                OwnerNodeProperty existing = node.getNodeProperties().get(OwnerNodeProperty.class);
-                if (existing == null || !Objects.equals(existing.getOwnership(), this)) {
-                    throwIfMissingPermission(node, OwnershipPlugin.MANAGE_SLAVES_OWNERSHIP);
-                }
-                return;
+            } else {
+                //TODO: maybe it should rejected, because there is no use-cases for it so far AFAIK
+                LOGGER.log(Level.WARNING, "Ownership Description is used outside the object context. " +
+                        "Jenkins.ADMINISTER permissions will be required to change ownership");
             }
         }
         // We don't know what object this OwnershipDescription belongs to, so we require Overall/Administer permissions.
@@ -422,11 +419,22 @@ public class OwnershipDescription implements Serializable {
         throwIfMissingPermission(Jenkins.getActiveInstance(), Jenkins.ADMINISTER);
     }
 
-    private void throwIfMissingPermission(AccessControlled context, Permission permission) throws ObjectStreamException {
+    private void throwIfMissingPermission(@Nonnull AccessControlled context, Permission permission) throws ObjectStreamException {
         try {
             context.checkPermission(permission);
         } catch (AccessDeniedException e) {
-            throw new InvalidObjectException(e.getMessage());
+            final String name;
+            if (context instanceof ModelObject) {
+                name = ((ModelObject)context).getDisplayName();
+            } else {
+                name = context.toString();
+            }
+
+            InvalidObjectException ex = new InvalidObjectException(
+                    String.format("Cannot modify permissions of %s of type %s: %s", name,
+                            context.getClass(), e.getMessage()));
+            ex.addSuppressed(e);
+            throw ex;
         }
     }
 

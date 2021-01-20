@@ -38,6 +38,7 @@ import jenkins.model.Jenkins;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
 
@@ -67,6 +68,7 @@ public class OwnerNodePropertyTest {
     }
 
     @Test
+    @Issue("SECURITY-498")
     public void changeOwnerViaPost() throws Exception {
         String nodeName; // Computer#updateByXml replaces the existing node with a new instance, so we always need to look up the current instance.
         String nodeUrl;
@@ -103,6 +105,7 @@ public class OwnerNodePropertyTest {
     }
 
     @Test
+    @Issue("SECURITY-498")
     public void changeOwnerViaCLI() throws Exception {
         String nodeName;
         {

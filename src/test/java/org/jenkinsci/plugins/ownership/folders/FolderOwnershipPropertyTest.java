@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2018 CloudBees, Inc.
+ * Copyright 2018 CloudBees, Inc., Oleg Nenashev
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,40 +22,48 @@
  * THE SOFTWARE.
  */
 
-package com.synopsys.arc.jenkins.plugins.ownership.jobs;
+package org.jenkinsci.plugins.ownership.folders;
 
+import com.cloudbees.hudson.plugins.folder.Folder;
 import com.gargoylesoftware.htmlunit.FailingHttpStatusCodeException;
 import com.gargoylesoftware.htmlunit.HttpMethod;
 import com.gargoylesoftware.htmlunit.WebRequest;
 import com.synopsys.arc.jenkins.plugins.ownership.OwnershipDescription;
+import com.synopsys.arc.jenkins.plugins.ownership.util.AbstractOwnershipHelper;
 import hudson.cli.CLICommandInvoker;
 import hudson.cli.UpdateJobCommand;
-import hudson.model.FreeStyleProject;
 import hudson.model.Item;
-import hudson.model.Job;
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import jenkins.model.Jenkins;
+import org.jenkinsci.plugins.ownership.model.OwnershipHelperLocator;
+import org.jenkinsci.plugins.ownership.model.folders.FolderOwnershipHelper;
+import org.jenkinsci.plugins.ownership.model.folders.FolderOwnershipProperty;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.jvnet.hudson.test.For;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.JenkinsRule.WebClient;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
 
-import static hudson.cli.CLICommandInvoker.Matcher.failedWith;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 import static hudson.cli.CLICommandInvoker.Matcher.succeededSilently;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
 
-public class JobOwnerJobPropertyTest {
+// TODO: DRY, merge with JobOwnerJobHelper once helper#setOwnership() is a non-static method
+@For(FolderOwnershipProperty.class)
+public class FolderOwnershipPropertyTest {
 
     @Rule
     public JenkinsRule r = new JenkinsRule();
+
+    private Folder p;
+    private AbstractOwnershipHelper<Folder> ownershipHelper;
 
     @Before
     public void setupSecurity() {
@@ -70,82 +78,97 @@ public class JobOwnerJobPropertyTest {
         r.jenkins.setAuthorizationStrategy(mas);
     }
 
+    @Before
+    public void initFolder() throws Exception {
+        // Unique project name
+        p = r.createProject(Folder.class, "test" + r.jenkins.getItems().size());
+        ownershipHelper = OwnershipHelperLocator.locate(p);
+        if (ownershipHelper == null) {
+            throw new AssertionError("Cannot locate ownership helper for " + p + " of type " + p.getClass());
+        }
+    }
+
     @Test
-    @Issue("SECURITY-498")
+    @Issue("JENKINS-49744")
     public void changeOwnerViaPost() throws Exception {
-        FreeStyleProject p = r.createFreeStyleProject();
-        p.getProperty(JobOwnerJobProperty.class).setOwnershipDescription(new OwnershipDescription(true, "admin", null));
+        FolderOwnershipHelper.setOwnership(p,
+                new OwnershipDescription(true, "admin", null));
 
         WebClient wc = r.createWebClient();
         wc.login("non-admin", "non-admin");
         WebRequest req = new WebRequest(wc.createCrumbedUrl(String.format("%sconfig.xml", p.getUrl())), HttpMethod.POST);
         req.setAdditionalHeader("Content-Type", "application/xml");
-        req.setRequestBody(getJobXml("admin"));
+        req.setRequestBody(getItemXml("admin"));
         wc.getPage(req);
-        assertThat("Users should be able to configure jobs when ownership is unchanged",
-                getPrimaryOwner(p), is(equalTo("admin")));
+        assertThat("Users should be able to configure Folder when ownership is unchanged",
+                ownershipHelper.getOwner(p), is(equalTo("admin")));
 
         try {
             wc.login("non-admin", "non-admin");
-            req.setRequestBody(getJobXml("non-admin"));
+            req.setRequestBody(getItemXml("non-admin"));
             wc.getPage(req);
-            fail("Users should not be able to configure job ownership without Manger Ownership/Jobs permissions");
         } catch (FailingHttpStatusCodeException e) {
-            assertThat(getPrimaryOwner(p), is(equalTo("admin")));
+            // fine
         }
+        assertThat(ownershipHelper.getOwner(p), is(equalTo("admin")));
 
         wc.login("admin", "admin");
-        req.setRequestBody(getJobXml("non-admin"));
+        req.setRequestBody(getItemXml("non-admin"));
         wc.getPage(req);
         assertThat("Users with Manage Ownership/Jobs permissions should be able to change ownership",
-                getPrimaryOwner(p), is(equalTo("non-admin")));
+                ownershipHelper.getOwner(p), is(equalTo("non-admin")));
     }
 
     @Test
-    @Issue("SECURITY-498")
+    @Issue("JENKINS-49744")
     public void changeOwnerViaCLI() throws Exception {
-        FreeStyleProject p = r.createFreeStyleProject();
-        p.getProperty(JobOwnerJobProperty.class).setOwnershipDescription(new OwnershipDescription(true, "admin", null));
+        FolderOwnershipHelper.setOwnership(p,
+                new OwnershipDescription(true, "admin", null));
 
         CLICommandInvoker command = new CLICommandInvoker(r, new UpdateJobCommand())
                 .asUser("non-admin")
                 .withArgs(p.getFullName())
-                .withStdin(getJobXmlAsStream("admin"));
-        assertThat("Users without Overall/Administer permissions should not be able to configure jobs via CLI", 
-                command.invoke(), failedWith(1));
-        assertThat(getPrimaryOwner(p), is(equalTo("admin")));
+                .withStdin(getItemXmlAsStream("admin"));
+        assertThat(ownershipHelper.getOwner(p), is(equalTo("admin")));
 
         command.asUser("admin")
                 .withArgs(p.getFullName())
-                .withStdin(getJobXmlAsStream("non-admin"));
+                .withStdin(getItemXmlAsStream("non-admin"));
         assertThat("Users with Overall/Administer permissions should be able to configure jobs via CLI", 
                 command.invoke(), succeededSilently());
-        assertThat(getPrimaryOwner(p), is(equalTo("non-admin")));
+        assertThat(ownershipHelper.getOwner(p), is(equalTo("non-admin")));
     }
 
-    private String getPrimaryOwner(Job<?,?> job) {
-        return job.getProperty(JobOwnerJobProperty.class).getOwnership().getPrimaryOwnerId();
+    private String getItemXml(String ownerSid) {
+        return String.format(FOLDER_XML_TEMPLATE, ownerSid);
     }
 
-    private String getJobXml(String ownerSid) {
-        return String.format(JOB_XML_TEMPLATE, ownerSid);
+    private InputStream getItemXmlAsStream(String ownerSid) {
+        return new ByteArrayInputStream(getItemXml(ownerSid).getBytes(StandardCharsets.UTF_8));
     }
 
-    private InputStream getJobXmlAsStream(String ownerSid) {
-        return new ByteArrayInputStream(getJobXml(ownerSid).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static final String JOB_XML_TEMPLATE =
+    private static final String FOLDER_XML_TEMPLATE =
             "<?xml version='1.0' encoding='UTF-8'?>" +
-            "<project>" +
-            "<properties>" +
-            "    <com.synopsys.arc.jenkins.plugins.ownership.jobs.JobOwnerJobProperty plugin=\"ownership@0.10.1-SNAPSHOT\">" +
+            "<com.cloudbees.hudson.plugins.folder.Folder plugin=\"cloudbees-folder@6.1.0\">" +
+            "  <properties>" +
+            "    <org.jenkinsci.plugins.ownership.model.folders.FolderOwnershipProperty plugin=\"ownership@0.10.1\">" +
             "        <ownership>" +
             "           <ownershipEnabled>true</ownershipEnabled>" +
             "           <primaryOwnerId>%s</primaryOwnerId>" +
             "           <coownersIds class=\"sorted-set\"/>" +
             "       </ownership>" +
-            "   </com.synopsys.arc.jenkins.plugins.ownership.jobs.JobOwnerJobProperty>" +
-            "</properties>" +
-            "</project>";
+            "   </org.jenkinsci.plugins.ownership.model.folders.FolderOwnershipProperty>" +
+            "  </properties>" +
+            "  <views>\n" +
+            "    <hudson.model.AllView>\n" +
+            "      <owner class=\"com.cloudbees.hudson.plugins.folder.Folder\" reference=\"../../..\"/>\n" +
+            "      <name>All</name>\n" +
+            "      <filterExecutors>false</filterExecutors>\n" +
+            "      <filterQueue>false</filterQueue>\n" +
+            "      <properties class=\"hudson.model.View$PropertyList\"/>\n" +
+            "    </hudson.model.AllView>\n" +
+            "  </views>\n" +
+            "  <viewsTabBar class=\"hudson.views.DefaultViewsTabBar\"/>" +
+            "</com.cloudbees.hudson.plugins.folder.Folder>";
+
 }

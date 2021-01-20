@@ -42,9 +42,13 @@ import java.io.IOException;
 import java.util.Collection;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
+
+import hudson.security.Permission;
 import org.jenkinsci.plugins.ownership.model.OwnershipHelperLocator;
 import org.jenkinsci.plugins.ownership.model.OwnershipInfo;
 import org.jenkinsci.plugins.ownership.model.jobs.JobOwnershipDescriptionSource;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * Helper for Jobs Ownership.
@@ -92,6 +96,16 @@ public class JobOwnerHelper extends AbstractOwnershipHelper<Job<?,?>> {
     public @Nonnull OwnershipDescription getOwnershipDescription(@Nonnull Job<?, ?> job) {
         // TODO: Maybe makes sense to unwrap the method to get a better performance (esp. for Security)
         return getOwnershipInfo(job).getDescription();
+    }
+
+    @Override
+    public Permission getRequiredPermission() {
+        return OwnershipPlugin.MANAGE_ITEMS_OWNERSHIP;
+    }
+
+    @Override
+    public boolean hasLocallyDefinedOwnership(@Nonnull Job<?, ?> job) {
+        return getOwnerProperty(job) != null;
     }
 
     @Override
@@ -186,6 +200,7 @@ public class JobOwnerHelper extends AbstractOwnershipHelper<Job<?,?>> {
     }
     
     @Extension
+    @Restricted(NoExternalUse.class)
     public static class LocatorImpl extends OwnershipHelperLocator<Job<?,?>> {
         
         @Override

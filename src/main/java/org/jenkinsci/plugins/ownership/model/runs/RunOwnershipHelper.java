@@ -30,6 +30,7 @@ import com.synopsys.arc.jenkins.plugins.ownership.jobs.JobOwnerHelper;
 import com.synopsys.arc.jenkins.plugins.ownership.nodes.OwnerNodeProperty;
 import com.synopsys.arc.jenkins.plugins.ownership.util.AbstractOwnershipHelper;
 import com.synopsys.arc.jenkins.plugins.ownership.util.UserStringFormatter;
+import hudson.Extension;
 import hudson.model.AbstractBuild;
 import hudson.model.BuildListener;
 import hudson.model.Node;
@@ -37,7 +38,12 @@ import hudson.model.Run;
 import java.util.Map;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
+
+import hudson.security.Permission;
+import org.jenkinsci.plugins.ownership.model.OwnershipHelperLocator;
 import org.jenkinsci.plugins.ownership.model.OwnershipInfo;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * Helper for {@link Run} ownership management.
@@ -46,10 +52,10 @@ import org.jenkinsci.plugins.ownership.model.OwnershipInfo;
  */
 public class RunOwnershipHelper extends AbstractOwnershipHelper<Run> {
 
-    private static final RunOwnershipHelper instance = new RunOwnershipHelper();
+    private static final RunOwnershipHelper INSTANCE = new RunOwnershipHelper();
 
     public static RunOwnershipHelper getInstance() {
-        return instance;
+        return INSTANCE;
     }
 
     @Override
@@ -76,7 +82,13 @@ public class RunOwnershipHelper extends AbstractOwnershipHelper<Run> {
     public OwnershipInfo getOwnershipInfo(Run item) {
         return JobOwnerHelper.Instance.getOwnershipInfo(item.getParent());
     }
-    
+
+    @Override
+    public Permission getRequiredPermission() {
+        // Runs do not have separate permission management logic now, so we rely on Items
+        return OwnershipPlugin.MANAGE_ITEMS_OWNERSHIP;
+    }
+
     /**
      * Environment setup according to wrapper configurations.
      * @param build Input build
@@ -142,5 +154,18 @@ public class RunOwnershipHelper extends AbstractOwnershipHelper<Run> {
     public boolean isDisplayOwnershipSummaryBox(Run item) {
         return super.isDisplayOwnershipSummaryBox(item) &&
                !OwnershipPlugin.getInstance().getConfiguration().getDisplayOptions().isHideRunOwnership();
+    }
+
+    @Extension
+    @Restricted(NoExternalUse.class)
+    public static class LocatorImpl extends OwnershipHelperLocator<Run> {
+
+        @Override
+        public AbstractOwnershipHelper<Run> findHelper(Object item) {
+            if (item instanceof Run) {
+                return INSTANCE;
+            }
+            return null;
+        }
     }
 }

@@ -1,6 +1,24 @@
 Changelog
 -----
 
+| WARNING: Changelogs have been moved to [GitHub Releases](https://github.com/jenkinsci/ownership/releases) |
+| --- |
+
+### New releases
+
+See [GitHub Releases](https://github.com/jenkinsci/ownership/releases).
+
+### 0.12.1
+
+Release date: Apr 30, 2018
+
+* [JENKINS-49744](https://issues.jenkins-ci.org/browse/JENKINS-49744) -
+Users with `Manage Ownership` permissions were unable to change Foler ownership from CLI/REST API without `Jenkins/Administer` persiossion.
+* [JENKINS-50807](https://issues.jenkins-ci.org/browse/JENKINS-50807) -
+Add missing implementations for [OwnershipHelperLocator](https://jenkins.io/doc/developer/extensions/ownership/#ownershiphelperlocator)
+extension point.
+Now the API can be used to retrieve ownership info for any object.
+
 ### 0.12.0
 
 Release date: Feb 26, 2018
